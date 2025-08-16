@@ -4,6 +4,7 @@ import statistics
 import pygame
 import math
 from time import sleep
+import matplotlib.pyplot as plt
 
 def get_onsets(path):
     outpath = path + '.beatmap.txt'
@@ -22,13 +23,14 @@ def find_bpm(path):
     print("Finding onsets...")
     sr = librosa.get_samplerate(path)
     frames = get_onsets(path)
-    #play_onsets(path, frames)
+    #play_onsets(path, frames=frames)
     print("Calculating BPM...")
     gaps = [frames[i+1] - frames[i] for i in range(len(frames)-1)]
     #Account for time resolution limit
     beat_estimate = int(statistics.median(gaps))
     bpm_estimate = round(60 / beat_estimate * sr / 1024)
     if bpm_estimate > 300: bpm_estimate //= 2
+    #if bpm_estimate < 60: bpm_estimate *= 2
     times = librosa.frames_to_time(frames)
     #local search from estimate
     best_score = -1000000
@@ -36,6 +38,7 @@ def find_bpm(path):
     best_offset = 0
     tests = [bpm_estimate + r for r in range(-50, 50)]
     swingtests = [bpm_estimate + r*2/3 for r in range(-50, 50)]
+    swingtests = []
     for bpm in tests:
         beat_len = 60 / bpm
         score, offset = score_match(times, beat_len, score_boost=0.05)
@@ -52,8 +55,11 @@ def find_bpm(path):
             best_offset = offset
     if best_bpm < 100:
         best_bpm *= 2
-    test = score_match([t - best_offset for t in times], 60 / best_bpm)
-    return best_bpm, round(best_offset, 3) 
+    #if best_bpm > 300:
+    #    best_bpm /= 2
+    #display_match(times, best_bpm, best_offset)
+    play_match(path, times, best_bpm, best_offset)
+    return best_bpm * 2, round(best_offset, 3) 
         
 def score_match(times, beat_len, score_boost=0, index=0):
     precision = 0.03
@@ -71,8 +77,30 @@ def score_match(times, beat_len, score_boost=0, index=0):
     while offset > beat_len: offset -= beat_len
     return len(matches) * (beat_len + score_boost), offset
 
-def play_onsets(musicpath, frames):
-    times = librosa.frames_to_time(frames)
+def display_match(times, best_bpm, best_offset):
+    rng = range(0, 150)
+    xvals = [times[i] - times[rng.start] for i in rng] + [best_offset + i*(30 / best_bpm ) - times[rng.start] for i in rng] + [0]
+    yvals = [0 for i in rng] + [1 for i in rng] + [10]
+    plt.scatter(xvals, yvals)
+    plt.show()
+
+def play_match(musicpath, times, best_bpm, best_offset):
+    best_bpm = 272
+    precision = 0.03
+    time = best_offset
+    matches = set()
+    beat_len = 60 / best_bpm
+    for i in range(1, len(times)):
+        while time < times[i]:
+            time += beat_len
+        dist = min(time - times[i], times[i] - (time - beat_len))
+        if dist < precision:
+            matches.add(i)
+    
+    play_onsets(musicpath, times=times)#, matches=matches)
+
+def play_onsets(musicpath, frames=[], times=[], matches=set()):
+    if frames: times = librosa.frames_to_time(frames)
     pygame.init()
     pygame.mixer.music.load(musicpath)
     pygame.mixer.music.set_volume(0.5)
@@ -83,6 +111,7 @@ def play_onsets(musicpath, frames):
         if pygame.mixer.music.get_pos() / 1000 > times[i]:
             print(pygame.mixer.music.get_pos() / 1000)
             pygame.mixer.Channel(0).play(click)
+            if i in matches: print('MATCH!')
             i += 1
             if i < len(times):
                 sleep((times[i] - times[i-1]) * 0.99)
@@ -105,7 +134,7 @@ def play_beat(musicpath, bpm, offset):
             sleep(beat_length * 0.99)
 
 def run_tests():
-    answers = {'24-7.mp3': 200, 'Afterglow.mp3': 250, 'Anniversary.mp3': 150,
+    answers = {'Hamster': 272, '24-7.mp3': 200, 'Afterglow.mp3': 250, 'Anniversary.mp3': 150,
             'bat.ogg': 230, 'catswing.ogg': 260, 'Counting Down.mp3': 110, 'Essence.mp3': 45,
             'darkzone.ogg': 200, 'fromnowon.ogg': 265, 'In conclusion.mp3': 180, 'White.mp3': 180,
             'third.ogg': 340, 'tvtime.ogg': 148, 'tvworld.ogg': 145}
@@ -119,7 +148,7 @@ def run_tests():
     print('ALL TESTS PASSED!')
 
 def main():
-    path = 'White.mp3'
+    path = 'Hamster.ogg'
     #path = 'darkzone.ogg'
     #path = 'Anniversary.mp3'
     #path = 'Counting Down.mp3'
@@ -130,3 +159,7 @@ def main():
 
 #run_tests()
 main()
+
+#Fails
+#Prison Break.mp3
+#rusty2.mp3
